@@ -34,30 +34,32 @@ module pe #(
 
   // Weight storage
 
-  logic signed [DW-1:0] weight_bg;
-  logic signed [DW-1:0] weight_active;
+  logic signed [DW-1:0] weight_bg; // shadow weight
+  logic signed [DW-1:0] weight_active; // active weight
 
   // MAC
 
   logic signed [DW-1:0] mult_out;
   logic signed [DW-1:0] mac_out;
 
-  fxp_mul #(QI,QF) u_mul (pe_input_in, weight_active, mult_out, );
-  fxp_add #(QI,QF) u_add (mult_out,    pe_psum_in,    mac_out,  );
+  fxp_mul #(QI,QF) u_mul (pe_input_in, weight_active, mult_out, ); // mult_out = input * weight
+  fxp_add #(QI,QF) u_add (mult_out,    pe_psum_in,    mac_out,  ); // mac_out = mult_out + psum_in
 
   // TODO: weight promotion. Which register does the multiplier read?
 
-  always_comb begin
-    weight_active = '0;
-  end
+always_ff @(posedge clk or posedge rst) begin
+  if (rst) weight_active <= '0;
+  else if (pe_switch_in) weight_active <= weight_bg;
+end
+
 
   // TODO: weight staging. When does weight_bg capture pe_weight_in?
 
   always_ff @( posedge clk or posedge rst ) begin
     if ( rst )
       weight_bg <= '0;
-    else
-      weight_bg <= weight_bg;
+    else if (pe_accept_w_in)
+      weight_bg <= pe_weight_in;
   end
 
   // TODO: streaming datapath. Drive all five outputs.
@@ -71,8 +73,28 @@ module pe #(
       pe_switch_out <= 1'b0;
     end
     else if ( !pe_enabled ) begin
+      pe_psum_out   <= '0;
+      pe_weight_out <= '0;
+      pe_input_out  <= '0;
+      pe_valid_out  <= 1'b0;
+      pe_switch_out <= 1'b0;
     end
     else begin
+      pe_valid_out  <= pe_valid_in;
+      pe_switch_out <= pe_switch_in;
+
+      if (pe_accept_w_in) pe_weight_out <= pe_weight_in;
+      else pe_weight_out <= '0;
+
+      if ( pe_valid_in ) begin
+        pe_input_out <= pe_input_in;
+        pe_psum_out  <= mac_out;
+      end
+      else begin
+        pe_input_out <= '0;
+        pe_psum_out  <= '0;
+      end
+
     end
   end
 
